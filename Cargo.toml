@@ -2,10 +2,10 @@
 name = "rust_keylogger"
 version = "0.1.0"
 authors = ["Hand-of-cthulhu <3rdhandofcthulhu@gmail.com>"]
-build = "build.rs"
 
 [dependencies]
 winapi = "0.2.*"
 user32-sys = "0.2"
 sodiumoxide = "*"
-pad = "0.1.4"
+#pad = "0.1.4"
+time = "*"

