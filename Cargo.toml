@@ -3,9 +3,24 @@ name = "rust_keylogger"
 version = "0.1.0"
 authors = ["Hand-of-cthulhu <3rdhandofcthulhu@gmail.com>"]
 
+[[bin]]
+name = "client"
+path = "src/client.rs"
+
+[[bin]]
+name = "server"
+path = "src/server.rs"
+
+[lib]
+name = "keylogger_lib"
+path = "src/lib.rs"
+
 [dependencies]
-winapi = "0.2.*"
+#winapi = "0.2.*"
 user32-sys = "0.2"
 sodiumoxide = "*"
 #pad = "0.1.4"
 time = "*"
+clap = "2"
+termsize = "*"
+

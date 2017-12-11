@@ -1,8 +1,14 @@
 <component name="ProjectDictionaryState">
   <dictionary name="Hand of Cthulhu">
     <words>
+      <w>addr</w>
       <w>capslock</w>
+      <w>dest</w>
+      <w>keylogger</w>
       <w>keylogs</w>
+      <w>rustc</w>
+      <w>sodiumoxide</w>
+      <w>streamified</w>
       <w>winapi</w>
     </words>
   </dictionary>
