@@ -2,3 +2,5 @@
 **/*.rs.bk
 *.char
 *.log
+*.crypt
+*.exe
