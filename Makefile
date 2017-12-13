@@ -3,7 +3,7 @@ export SODIUM_STATIC := yes
 
 .PHONY: all
 all: %.rs
-	cargo build --release
+	cargo build
 
 %.rs:
 	echo "Hmm..."

