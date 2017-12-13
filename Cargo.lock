@@ -76,7 +76,7 @@ dependencies = [
 
 [[package]]
 name = "rust_keylogger"
-version = "0.1.0"
+version = "0.3.1"
 dependencies = [
  "clap 2.29.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "sodiumoxide 0.0.16 (registry+https://github.com/rust-lang/crates.io-index)",
